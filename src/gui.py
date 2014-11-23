@@ -5,7 +5,49 @@ import dnf
 import sys
 from types import NoneType
 
-class Handler:
+
+class DnfGuiApplication(Gtk.Application):
+    def __init__(self):
+        Gtk.Application.__init__(self)
+
+    def do_activate(self):
+        Gtk.Application.do_startup(self)
+        self.main_window.show()
+        Gtk.main()
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.builder = Gtk.Builder()
+        self.builder.add_from_file("gui.ui")
+        self.builder.connect_signals(self)
+        self.main_window = self.builder.get_object("main_window")
+        self.conf_window = self.builder.get_object("conf_window")
+
+        base = dnf.Base()
+        base.conf.read()
+        self.dnf_conf = base.conf
+        base.read_all_repos()
+        from platform import machine
+        cachedir = "/var/cache/dnf/{}/{}".format(machine(), dnf.rpm.detect_releasever("/"))
+        self.dnf_conf.cachedir = cachedir
+        for repo in base.repos.values():
+            repo.basecachedir = cachedir
+            repo.md_only_cached = True
+        base.fill_sack()
+        pkgs = base.sack.query().installed()
+        for pkg in pkgs:
+            to_ins = Gtk.Box()
+            to_ins.pack_start(Gtk.Label(pkg.name), True, False, 0)
+            to_ins.pack_end(Gtk.Button("Remove"), True, False, 0)
+            self.builder.get_object("listbox1").insert(to_ins, -1)
+        self.builder.get_object("listbox1").show_all()
+
+    def on_main_window_destroy(self, window, event):
+        Gtk.main_quit()
+
+    def on_conf_window_delete_event(self, window, event):
+        window.destroy()
+
     def btn_save(self, grid):
         config = ConfigParser.RawConfigParser()
         config.add_section("main")
@@ -24,40 +66,15 @@ class Handler:
         with open("dnf.conf", "wb") as configfile:
             config.write(configfile)
 
-
-class DnfConfWindow(Gtk.ApplicationWindow):
-    def __init__(self, app):
-        Gtk.Window.__init__(self, title="DNF configuration manager", application=app)
-        self.builder = Gtk.Builder()
-        self.builder.add_from_file("gui.ui")
-        self.builder.connect_signals(Handler())
-        self.window = self.builder.get_object("window1")
-
-        base = dnf.Base()
-        base.conf.read()
-        self.dnf_conf = base.conf
-
+    def btn_settings(self, widget):
         self.builder.get_object("best_sw").set_active(self.dnf_conf.best)
         self.builder.get_object("clean_requirements_on_remove_sw").set_active(self.dnf_conf.clean_requirements_on_remove)
         self.builder.get_object("debuglevel_adj").set_value(self.dnf_conf.debuglevel)
         self.builder.get_object("installonly_limit_spin").set_value(self.dnf_conf.installonly_limit)
         self.builder.get_object("keepcache_sw").set_active(self.dnf_conf.keepcache)
         self.builder.get_object("gpgcheck_sw").set_active(self.dnf_conf.gpgcheck)
-        self.window.show()
+        self.conf_window.show()
 
-
-class DnfConfApplication(Gtk.Application):
-    def __init__(self):
-        Gtk.Application.__init__(self)
-
-    def do_activate(self):
-        win = DnfConfWindow(self)
-        win.window.show()
-
-    def do_startup(self):
-        Gtk.Application.do_startup(self)
-
-
-app = DnfConfApplication()
+app = DnfGuiApplication()
 exit_status = app.run(None)
 sys.exit(exit_status)
